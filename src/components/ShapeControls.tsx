@@ -1,5 +1,6 @@
 import type { GridSettings, ShapeControl } from '../domain/types';
 import { shapeRegistry } from '../shapes/registry';
+import { NumericField } from './NumericField';
 
 type ShapeControlsProps = {
   settings: GridSettings;
@@ -31,6 +32,7 @@ export const ShapeControls = ({ settings, onChange }: ShapeControlsProps) => (
                     key={option.value}
                     type="button"
                     className={value === option.value ? 'active' : ''}
+                    aria-pressed={value === option.value}
                     onClick={() => onChange({ [control.key]: option.value } as Partial<GridSettings>)}
                   >
                     {option.label}
@@ -55,23 +57,19 @@ export const ShapeControls = ({ settings, onChange }: ShapeControlsProps) => (
         }
 
         return (
-          <label className="field" key={control.key}>
-            <span>
-              {control.label}
-              {control.unit ? <b>{control.unit}</b> : null}
-            </span>
-            <input
-              data-testid={`${control.key}-input`}
-              type="number"
-              min={control.min}
-              max={control.max}
-              step={control.step}
-              value={Number(value)}
-              onChange={(event) =>
-                onChange({ [control.key]: Number(event.target.value) } as Partial<GridSettings>)
-              }
-            />
-          </label>
+          <NumericField
+            key={control.key}
+            label={control.label}
+            value={Number(value)}
+            min={control.min}
+            max={control.max}
+            step={control.step}
+            unit={control.unit}
+            testId={`${control.key}-input`}
+            onCommit={(nextValue) =>
+              onChange({ [control.key]: nextValue } as Partial<GridSettings>)
+            }
+          />
         );
       })}
     </div>

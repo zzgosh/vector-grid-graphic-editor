@@ -48,6 +48,25 @@ describe('SVG export', () => {
     expect(result.stats.pathCount).toBe(2);
   });
 
+  it('ignores filled cells outside the current grid dimensions', () => {
+    const cells = new Set([
+      cellKey({ row: 0, column: 0 }),
+      cellKey({ row: 15, column: 15 }),
+    ]);
+    const result = exportGridSvg(
+      {
+        ...DEFAULT_GRID_SETTINGS,
+        rows: 4,
+        columns: 4,
+      },
+      cells,
+      'separated',
+    );
+
+    expect(result.stats.selectedCells).toBe(1);
+    expect(result.stats.pathCount).toBe(1);
+  });
+
   it('cleans duplicate and collinear points', () => {
     const cleaned = cleanRing([
       { x: 0, y: 0 },

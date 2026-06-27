@@ -164,13 +164,51 @@ export const pointInPolygon = (point: Point, polygon: Point[]): boolean => {
   return inside;
 };
 
-export const findCellAtPoint = (settings: GridSettings, point: Point): CellRef | null => {
-  for (let row = 0; row < settings.rows; row += 1) {
-    for (let column = 0; column < settings.columns; column += 1) {
-      const cell = { row, column };
-      if (pointInPolygon(point, getCellPolygon(settings, cell))) {
-        return cell;
+const getCandidateCellsAtPoint = (settings: GridSettings, point: Point): CellRef[] => {
+  const skew = getSignedSlantOffset(settings);
+  const gapX = getActiveGapX(settings);
+  const gapY = getActiveGapY(settings);
+  const strideX = settings.cellWidth + gapX;
+  const strideY = settings.cellHeight + gapY;
+  const candidates: CellRef[] = [];
+  const seen = new Set<string>();
+
+  const pushCandidate = (row: number, column: number) => {
+    if (row < 0 || row >= settings.rows || column < 0 || column >= settings.columns) {
+      return;
+    }
+    const key = `${row}:${column}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      candidates.push({ row, column });
+    }
+  };
+
+  if (settings.slantMode === 'verticalEdges') {
+    const estimatedRow = Math.floor(point.y / strideY);
+    for (let row = estimatedRow - 1; row <= estimatedRow + 1; row += 1) {
+      const estimatedColumn = Math.floor((point.x - row * skew) / strideX);
+      for (let column = estimatedColumn - 1; column <= estimatedColumn + 1; column += 1) {
+        pushCandidate(row, column);
       }
+    }
+  } else {
+    const estimatedColumn = Math.floor(point.x / strideX);
+    for (let column = estimatedColumn - 1; column <= estimatedColumn + 1; column += 1) {
+      const estimatedRow = Math.floor((point.y - column * skew) / strideY);
+      for (let row = estimatedRow - 1; row <= estimatedRow + 1; row += 1) {
+        pushCandidate(row, column);
+      }
+    }
+  }
+
+  return candidates;
+};
+
+export const findCellAtPoint = (settings: GridSettings, point: Point): CellRef | null => {
+  for (const cell of getCandidateCellsAtPoint(settings, point)) {
+    if (pointInPolygon(point, getCellPolygon(settings, cell))) {
+      return cell;
     }
   }
 

@@ -1,5 +1,5 @@
 import * as polygonClippingNamespace from 'polygon-clipping';
-import { cellKey, parseCellKey } from '../domain/grid';
+import { isCellInGrid, parseCellKey } from '../domain/grid';
 import type { CellRef, ExportMode, GridSettings, Point } from '../domain/types';
 import { getCellPolygon, getGridBounds } from '../shapes/parallelogram';
 
@@ -76,13 +76,14 @@ const ringToPolygonInput = (points: Point[]): Ring => {
   return ring;
 };
 
-const getSelectedCells = (filledCells: Set<string>): CellRef[] =>
+const getSelectedCells = (settings: GridSettings, filledCells: Set<string>): CellRef[] =>
   Array.from(filledCells)
     .map(parseCellKey)
+    .filter((cell) => isCellInGrid(cell, settings))
     .sort((first, second) => first.row - second.row || first.column - second.column);
 
 const getSelectedPolygons = (settings: GridSettings, filledCells: Set<string>): Point[][] =>
-  getSelectedCells(filledCells).map((cell) => getCellPolygon(settings, cell));
+  getSelectedCells(settings, filledCells).map((cell) => getCellPolygon(settings, cell));
 
 const boundsFromPolygons = (polygons: Point[][]): ReturnType<typeof getGridBounds> => {
   const points = polygons.flat();
@@ -192,9 +193,7 @@ export const exportGridSvg = (
   filledCells: Set<string>,
   mode: ExportMode,
 ): SvgExportResult => {
-  const selectedCells = getSelectedCells(filledCells).filter((cell) =>
-    filledCells.has(cellKey(cell)),
-  );
+  const selectedCells = getSelectedCells(settings, filledCells);
   const selectedPolygons = getSelectedPolygons(settings, filledCells);
   const bounds = boundsFromPolygons(selectedPolygons);
   const paths =

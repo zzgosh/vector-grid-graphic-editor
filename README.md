@@ -9,11 +9,12 @@ A frontend-only editor for building logo-like vector graphics from a configurabl
 - 16 x 16 default parallelogram grid with editable row and column counts.
 - Shape-specific controls for parallelogram width, height, slant edge mode, slant direction, slant angle, and horizontal / vertical gaps.
 - Click-to-paint and drag-to-paint interaction with an erase mode.
+- Keyboard painting: focus the canvas, move with arrow keys, and press Space or Enter to paint or erase.
 - Single-color fill workflow for focused logo drafting.
 - SVG export in two modes:
   - `Merged`: unions adjacent filled cells into continuous vector paths.
   - `Separated`: keeps every filled cell as an independent path.
-- Browser-side SVG optimization is loaded only when downloading, keeping the editing surface light.
+- Merged SVG union and browser-side SVG optimization are kept out of the drag hot path, keeping the editing surface light.
 
 ## Tech Stack
 

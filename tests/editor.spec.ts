@@ -88,9 +88,37 @@ test('paints by click and drag, then exports renderable SVG', async ({ page }) =
 test('supports changing grid quantity and slant controls', async ({ page }) => {
   await page.goto('/');
   await page.getByTestId('rows-input').fill('20');
+  await page.getByTestId('rows-input').press('Enter');
   await page.getByTestId('columns-input').fill('12');
+  await page.getByTestId('columns-input').press('Enter');
   await page.getByTestId('slantAngle-input').fill('32');
+  await page.getByTestId('slantAngle-input').press('Enter');
 
   await expect(page.getByText('20 rows x 12 columns')).toBeVisible();
   await expect(page.getByTestId('export-stats')).toContainText('0 paths');
+});
+
+test('supports keyboard painting and preserves hidden cells across grid resizing', async ({ page }) => {
+  await page.goto('/');
+  const canvas = page.getByTestId('editor-canvas');
+  await canvas.focus();
+
+  for (let index = 0; index < 15; index += 1) {
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowDown');
+  }
+  await page.keyboard.press('Space');
+  await expect(page.getByTestId('selected-count')).toHaveText('1 filled');
+
+  await page.getByTestId('rows-input').fill('4');
+  await page.getByTestId('rows-input').press('Enter');
+  await page.getByTestId('columns-input').fill('4');
+  await page.getByTestId('columns-input').press('Enter');
+  await expect(page.getByTestId('selected-count')).toHaveText('0 filled');
+
+  await page.getByTestId('rows-input').fill('16');
+  await page.getByTestId('rows-input').press('Enter');
+  await page.getByTestId('columns-input').fill('16');
+  await page.getByTestId('columns-input').press('Enter');
+  await expect(page.getByTestId('selected-count')).toHaveText('1 filled');
 });

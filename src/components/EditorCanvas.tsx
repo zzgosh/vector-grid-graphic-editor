@@ -76,6 +76,8 @@ export const EditorCanvas = ({
   const lastPointRef = useRef<Point | null>(null);
   const workingCellsRef = useRef<Set<string>>(filledCells);
   const [canvasSize, setCanvasSize] = useState({ width: 900, height: 620 });
+  const [isKeyboardFocused, setIsKeyboardFocused] = useState(false);
+  const [keyboardCell, setKeyboardCell] = useState({ row: 0, column: 0 });
 
   const bounds = useMemo(() => getGridBounds(settings), [settings]);
   const viewport = useMemo<Viewport>(() => {
@@ -94,6 +96,13 @@ export const EditorCanvas = ({
   useEffect(() => {
     workingCellsRef.current = filledCells;
   }, [filledCells]);
+
+  useEffect(() => {
+    setKeyboardCell((cell) => ({
+      row: Math.min(settings.rows - 1, Math.max(0, cell.row)),
+      column: Math.min(settings.columns - 1, Math.max(0, cell.column)),
+    }));
+  }, [settings.columns, settings.rows]);
 
   useEffect(() => {
     const wrapper = wrapperRef.current;
@@ -160,8 +169,24 @@ export const EditorCanvas = ({
         context.stroke();
       }
     }
+
+    if (isKeyboardFocused) {
+      const polygon = getCellPolygon(settings, keyboardCell);
+      context.beginPath();
+      polygon.forEach((point, index) => {
+        if (index === 0) {
+          context.moveTo(point.x, point.y);
+        } else {
+          context.lineTo(point.x, point.y);
+        }
+      });
+      context.closePath();
+      context.strokeStyle = '#2f6fed';
+      context.lineWidth = 3 / viewport.scale;
+      context.stroke();
+    }
     context.restore();
-  }, [bounds, canvasSize, filledCells, settings, viewport]);
+  }, [bounds, canvasSize, filledCells, isKeyboardFocused, keyboardCell, settings, viewport]);
 
   const applyPoint = (point: Point, previousPoint?: Point | null) => {
     const cells = previousPoint
@@ -214,12 +239,52 @@ export const EditorCanvas = ({
     onStrokeEnd(workingCellsRef.current);
   };
 
+  const paintKeyboardCell = () => {
+    workingCellsRef.current = new Set(filledCells);
+    const nextCells = paintCells(settings, workingCellsRef.current, [keyboardCell], toolMode);
+    workingCellsRef.current = nextCells;
+    onStrokeStart();
+    onStrokeChange(nextCells);
+    onStrokeEnd(nextCells);
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLCanvasElement>) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      paintKeyboardCell();
+      return;
+    }
+
+    const moves: Record<string, { row: number; column: number }> = {
+      ArrowUp: { row: -1, column: 0 },
+      ArrowDown: { row: 1, column: 0 },
+      ArrowLeft: { row: 0, column: -1 },
+      ArrowRight: { row: 0, column: 1 },
+    };
+    const move = moves[event.key];
+    if (!move) {
+      return;
+    }
+
+    event.preventDefault();
+    setKeyboardCell((cell) => ({
+      row: Math.min(settings.rows - 1, Math.max(0, cell.row + move.row)),
+      column: Math.min(settings.columns - 1, Math.max(0, cell.column + move.column)),
+    }));
+  };
+
   return (
     <div className="canvasWrapper" ref={wrapperRef}>
       <canvas
         ref={canvasRef}
         data-testid="editor-canvas"
-        aria-label="Parallelogram drawing grid"
+        aria-label="Parallelogram drawing grid. Use arrow keys to move, then Space or Enter to paint or erase the focused cell."
+        aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Space Enter"
+        role="application"
+        tabIndex={0}
+        onBlur={() => setIsKeyboardFocused(false)}
+        onFocus={() => setIsKeyboardFocused(true)}
+        onKeyDown={handleKeyDown}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={finishStroke}

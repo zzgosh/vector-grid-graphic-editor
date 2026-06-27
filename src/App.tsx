@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Download,
   Eraser,
@@ -10,6 +10,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { EditorCanvas } from './components/EditorCanvas';
+import { NumericField } from './components/NumericField';
 import { ShapeControls } from './components/ShapeControls';
 import { SvgPreview } from './components/SvgPreview';
 import { DEFAULT_GRID_SETTINGS, areCellSetsEqual, filterCellsForGrid } from './domain/grid';
@@ -41,14 +42,46 @@ export const App = () => {
   const [filledCells, setFilledCells] = useState<Set<string>>(() => new Set());
   const [toolMode, setToolMode] = useState<ToolMode>('paint');
   const [exportMode, setExportMode] = useState<ExportMode>('merged');
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [exportSnapshot, setExportSnapshot] = useState(() => ({
+    settings: DEFAULT_GRID_SETTINGS,
+    filledCells: new Set<string>(),
+    exportMode: 'merged' as ExportMode,
+  }));
   const undoStack = useRef<Set<string>[]>([]);
   const redoStack = useRef<Set<string>[]>([]);
   const strokeStart = useRef<Set<string> | null>(null);
 
-  const exportResult = useMemo(
-    () => exportGridSvg(settings, filledCells, exportMode),
-    [exportMode, filledCells, settings],
+  const visibleFilledCells = useMemo(
+    () => filterCellsForGrid(filledCells, settings),
+    [filledCells, settings],
   );
+
+  const exportResult = useMemo(
+    () =>
+      exportGridSvg(
+        exportSnapshot.settings,
+        exportSnapshot.filledCells,
+        exportSnapshot.exportMode,
+      ),
+    [exportSnapshot],
+  );
+
+  useEffect(() => {
+    if (isDrawing) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setExportSnapshot({
+        settings,
+        filledCells: cloneCells(filledCells),
+        exportMode,
+      });
+    }, 120);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [exportMode, filledCells, isDrawing, settings]);
 
   const commitCells = (nextCells: Set<string>) => {
     setFilledCells((previousCells) => {
@@ -64,10 +97,10 @@ export const App = () => {
   const updateSettings = (partial: Partial<GridSettings>) => {
     const nextSettings = normalizeSettings({ ...settings, ...partial });
     setSettings(nextSettings);
-    setFilledCells((previousCells) => filterCellsForGrid(previousCells, nextSettings));
   };
 
   const beginStroke = () => {
+    setIsDrawing(true);
     strokeStart.current = cloneCells(filledCells);
   };
 
@@ -78,12 +111,18 @@ export const App = () => {
   const endStroke = (finalCells: Set<string>) => {
     const start = strokeStart.current;
     strokeStart.current = null;
+    setIsDrawing(false);
     if (!start || areCellSetsEqual(start, finalCells)) {
       return;
     }
     undoStack.current.push(start);
     redoStack.current = [];
     setFilledCells(cloneCells(finalCells));
+    setExportSnapshot({
+      settings,
+      filledCells: cloneCells(finalCells),
+      exportMode,
+    });
   };
 
   const undo = () => {
@@ -110,11 +149,11 @@ export const App = () => {
 
   const resetSettings = () => {
     setSettings(DEFAULT_GRID_SETTINGS);
-    commitCells(filterCellsForGrid(filledCells, DEFAULT_GRID_SETTINGS));
   };
 
   const downloadSvg = async () => {
-    const svg = await optimizeSvg(exportResult.svg);
+    const freshExport = exportGridSvg(settings, filledCells, exportMode);
+    const svg = await optimizeSvg(freshExport.svg);
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -124,7 +163,7 @@ export const App = () => {
     URL.revokeObjectURL(url);
   };
 
-  const selectedCount = filledCells.size;
+  const selectedCount = visibleFilledCells.size;
 
   return (
     <main className="appShell">
@@ -147,30 +186,24 @@ export const App = () => {
             </button>
           </div>
           <div className="twoColumn">
-            <label className="field">
-              <span>Rows</span>
-              <input
-                data-testid="rows-input"
-                type="number"
-                min={4}
-                max={96}
-                step={1}
-                value={settings.rows}
-                onChange={(event) => updateSettings({ rows: Number(event.target.value) })}
-              />
-            </label>
-            <label className="field">
-              <span>Columns</span>
-              <input
-                data-testid="columns-input"
-                type="number"
-                min={4}
-                max={96}
-                step={1}
-                value={settings.columns}
-                onChange={(event) => updateSettings({ columns: Number(event.target.value) })}
-              />
-            </label>
+            <NumericField
+              label="Rows"
+              value={settings.rows}
+              min={4}
+              max={96}
+              step={1}
+              testId="rows-input"
+              onCommit={(rows) => updateSettings({ rows })}
+            />
+            <NumericField
+              label="Columns"
+              value={settings.columns}
+              min={4}
+              max={96}
+              step={1}
+              testId="columns-input"
+              onCommit={(columns) => updateSettings({ columns })}
+            />
           </div>
         </section>
 
@@ -193,6 +226,7 @@ export const App = () => {
             <button
               type="button"
               className={toolMode === 'paint' ? 'active' : ''}
+              aria-pressed={toolMode === 'paint'}
               onClick={() => setToolMode('paint')}
             >
               <Paintbrush size={16} />
@@ -201,6 +235,7 @@ export const App = () => {
             <button
               type="button"
               className={toolMode === 'erase' ? 'active' : ''}
+              aria-pressed={toolMode === 'erase'}
               onClick={() => setToolMode('erase')}
             >
               <Eraser size={16} />
@@ -235,6 +270,7 @@ export const App = () => {
             <button
               type="button"
               className={exportMode === 'merged' ? 'active' : ''}
+              aria-pressed={exportMode === 'merged'}
               onClick={() => setExportMode('merged')}
             >
               Merged
@@ -242,6 +278,7 @@ export const App = () => {
             <button
               type="button"
               className={exportMode === 'separated' ? 'active' : ''}
+              aria-pressed={exportMode === 'separated'}
               onClick={() => setExportMode('separated')}
             >
               Separated
