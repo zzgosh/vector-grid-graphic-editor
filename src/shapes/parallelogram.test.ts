@@ -56,6 +56,28 @@ describe('parallelogram geometry', () => {
     expect(findCellAtPoint(DEFAULT_GRID_SETTINGS, center)).toEqual({ row: 2, column: 3 });
   });
 
+  it('finds cells under extreme slant settings without scanning the whole grid', () => {
+    const settings = {
+      ...DEFAULT_GRID_SETTINGS,
+      rows: 24,
+      columns: 24,
+      cellWidth: 16,
+      cellHeight: 160,
+      slantAngle: 55,
+      gapXEnabled: false,
+      gapYEnabled: false,
+      gapX: 0,
+      gapY: 0,
+    };
+    const polygon = getCellPolygon(settings, { row: 5, column: 20 });
+    const bottomEdgeCenter = {
+      x: (polygon[2].x + polygon[3].x) / 2,
+      y: (polygon[2].y + polygon[3].y) / 2,
+    };
+
+    expect(findCellAtPoint(settings, bottomEdgeCenter)).toEqual({ row: 5, column: 20 });
+  });
+
   it('samples every crossed cell during a fast drag segment', () => {
     const startPolygon = getCellPolygon(DEFAULT_GRID_SETTINGS, { row: 4, column: 2 });
     const endPolygon = getCellPolygon(DEFAULT_GRID_SETTINGS, { row: 4, column: 8 });

@@ -185,18 +185,24 @@ const getCandidateCellsAtPoint = (settings: GridSettings, point: Point): CellRef
   };
 
   if (settings.slantMode === 'verticalEdges') {
+    const columnRadius = Math.ceil(Math.abs(skew) / strideX) + 1;
     const estimatedRow = Math.floor(point.y / strideY);
     for (let row = estimatedRow - 1; row <= estimatedRow + 1; row += 1) {
       const estimatedColumn = Math.floor((point.x - row * skew) / strideX);
-      for (let column = estimatedColumn - 1; column <= estimatedColumn + 1; column += 1) {
+      for (
+        let column = estimatedColumn - columnRadius;
+        column <= estimatedColumn + columnRadius;
+        column += 1
+      ) {
         pushCandidate(row, column);
       }
     }
   } else {
+    const rowRadius = Math.ceil(Math.abs(skew) / strideY) + 1;
     const estimatedColumn = Math.floor(point.x / strideX);
     for (let column = estimatedColumn - 1; column <= estimatedColumn + 1; column += 1) {
       const estimatedRow = Math.floor((point.y - column * skew) / strideY);
-      for (let row = estimatedRow - 1; row <= estimatedRow + 1; row += 1) {
+      for (let row = estimatedRow - rowRadius; row <= estimatedRow + rowRadius; row += 1) {
         pushCandidate(row, column);
       }
     }
