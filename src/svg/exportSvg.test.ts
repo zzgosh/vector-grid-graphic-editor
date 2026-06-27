@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_GRID_SETTINGS, cellKey } from '../domain/grid';
+import { DEFAULT_GRID_SETTINGS, cellKey, gapKey } from '../domain/grid';
 import { cleanRing, exportGridSvg } from './exportSvg';
 
 describe('SVG export', () => {
@@ -11,9 +11,38 @@ describe('SVG export', () => {
     const result = exportGridSvg(DEFAULT_GRID_SETTINGS, cells, 'separated');
 
     expect(result.stats.selectedCells).toBe(2);
+    expect(result.stats.selectedGaps).toBe(0);
     expect(result.stats.pathCount).toBe(2);
     expect(result.svg).toContain('viewBox=');
     expect(result.svg.match(/<path/g)?.length).toBe(2);
+  });
+
+  it('exports separated gap fills as independent paths', () => {
+    const gaps = new Set([
+      gapKey({ part: 'x', row: 0, column: 0 }),
+      gapKey({ part: 'y', row: 0, column: 0 }),
+      gapKey({ part: 'xy', row: 0, column: 0 }),
+    ]);
+    const result = exportGridSvg(DEFAULT_GRID_SETTINGS, new Set(), 'separated', gaps);
+
+    expect(result.stats.selectedCells).toBe(0);
+    expect(result.stats.selectedGaps).toBe(3);
+    expect(result.stats.pathCount).toBe(3);
+    expect(result.svg.match(/<path/g)?.length).toBe(3);
+  });
+
+  it('uses filled gaps to bridge adjacent cells in merged mode', () => {
+    const cells = new Set([
+      cellKey({ row: 0, column: 0 }),
+      cellKey({ row: 0, column: 1 }),
+    ]);
+    const gaps = new Set([gapKey({ part: 'x', row: 0, column: 0 })]);
+    const result = exportGridSvg(DEFAULT_GRID_SETTINGS, cells, 'merged', gaps);
+
+    expect(result.stats.selectedCells).toBe(2);
+    expect(result.stats.selectedGaps).toBe(1);
+    expect(result.stats.pathCount).toBe(1);
+    expect(result.svg.match(/<path/g)?.length).toBe(1);
   });
 
   it('unions adjacent no-gap cells into one continuous path', () => {

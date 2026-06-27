@@ -17,9 +17,26 @@ export type CellRef = {
   column: number;
 };
 
+export type GapPart = 'x' | 'y' | 'xy';
+
+export type GapRef = {
+  part: GapPart;
+  row: number;
+  column: number;
+};
+
+export type FillSelection = {
+  cells: Set<string>;
+  gaps: Set<string>;
+};
+
 export type SlantMode = 'verticalEdges' | 'horizontalEdges';
 export type SlantDirection = 'forward' | 'backward';
 export type ToolMode = 'paint' | 'erase';
+export type PaintTargets = {
+  cells: boolean;
+  gaps: boolean;
+};
 export type ExportMode = 'separated' | 'merged';
 
 export type GridSettings = {

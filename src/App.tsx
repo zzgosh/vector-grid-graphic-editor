@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  BetweenHorizontalStart,
+  Check,
   Download,
   Eraser,
+  Grid2x2,
   Grid3X3,
   Paintbrush,
   Redo2,
@@ -13,11 +16,17 @@ import { EditorCanvas } from './components/EditorCanvas';
 import { NumericField } from './components/NumericField';
 import { ShapeControls } from './components/ShapeControls';
 import { SvgPreview } from './components/SvgPreview';
-import { DEFAULT_GRID_SETTINGS, areCellSetsEqual, filterCellsForGrid } from './domain/grid';
-import type { ExportMode, GridSettings, ToolMode } from './domain/types';
+import { DEFAULT_GRID_SETTINGS, areKeySetsEqual, filterCellsForGrid, filterGapsForGrid } from './domain/grid';
+import type { ExportMode, FillSelection, GridSettings, PaintTargets, ToolMode } from './domain/types';
 import { exportGridSvg, optimizeSvg } from './svg/exportSvg';
 
-const cloneCells = (cells: Set<string>): Set<string> => new Set(cells);
+const cloneSelection = (selection: FillSelection): FillSelection => ({
+  cells: new Set(selection.cells),
+  gaps: new Set(selection.gaps),
+});
+
+const areSelectionsEqual = (first: FillSelection, second: FillSelection): boolean =>
+  areKeySetsEqual(first.cells, second.cells) && areKeySetsEqual(first.gaps, second.gaps);
 
 const clamp = (value: number, min: number, max: number): number => {
   if (!Number.isFinite(value)) {
@@ -39,30 +48,45 @@ const normalizeSettings = (settings: GridSettings): GridSettings => ({
 
 export const App = () => {
   const [settings, setSettings] = useState<GridSettings>(DEFAULT_GRID_SETTINGS);
-  const [filledCells, setFilledCells] = useState<Set<string>>(() => new Set());
+  const [selection, setSelection] = useState<FillSelection>(() => ({
+    cells: new Set(),
+    gaps: new Set(),
+  }));
   const [toolMode, setToolMode] = useState<ToolMode>('paint');
+  const [paintTargets, setPaintTargets] = useState<PaintTargets>({
+    cells: true,
+    gaps: true,
+  });
   const [exportMode, setExportMode] = useState<ExportMode>('merged');
   const [isDrawing, setIsDrawing] = useState(false);
   const [exportSnapshot, setExportSnapshot] = useState(() => ({
     settings: DEFAULT_GRID_SETTINGS,
-    filledCells: new Set<string>(),
+    selection: {
+      cells: new Set<string>(),
+      gaps: new Set<string>(),
+    },
     exportMode: 'merged' as ExportMode,
   }));
-  const undoStack = useRef<Set<string>[]>([]);
-  const redoStack = useRef<Set<string>[]>([]);
-  const strokeStart = useRef<Set<string> | null>(null);
+  const undoStack = useRef<FillSelection[]>([]);
+  const redoStack = useRef<FillSelection[]>([]);
+  const strokeStart = useRef<FillSelection | null>(null);
 
   const visibleFilledCells = useMemo(
-    () => filterCellsForGrid(filledCells, settings),
-    [filledCells, settings],
+    () => filterCellsForGrid(selection.cells, settings),
+    [selection, settings],
+  );
+  const visibleFilledGaps = useMemo(
+    () => filterGapsForGrid(selection.gaps, settings),
+    [selection, settings],
   );
 
   const exportResult = useMemo(
     () =>
       exportGridSvg(
         exportSnapshot.settings,
-        exportSnapshot.filledCells,
+        exportSnapshot.selection.cells,
         exportSnapshot.exportMode,
+        exportSnapshot.selection.gaps,
       ),
     [exportSnapshot],
   );
@@ -75,22 +99,22 @@ export const App = () => {
     const timeoutId = window.setTimeout(() => {
       setExportSnapshot({
         settings,
-        filledCells: cloneCells(filledCells),
+        selection: cloneSelection(selection),
         exportMode,
       });
     }, 120);
 
     return () => window.clearTimeout(timeoutId);
-  }, [exportMode, filledCells, isDrawing, settings]);
+  }, [exportMode, isDrawing, selection, settings]);
 
-  const commitCells = (nextCells: Set<string>) => {
-    setFilledCells((previousCells) => {
-      if (areCellSetsEqual(previousCells, nextCells)) {
-        return previousCells;
+  const commitSelection = (nextSelection: FillSelection) => {
+    setSelection((previousSelection) => {
+      if (areSelectionsEqual(previousSelection, nextSelection)) {
+        return previousSelection;
       }
-      undoStack.current.push(cloneCells(previousCells));
+      undoStack.current.push(cloneSelection(previousSelection));
       redoStack.current = [];
-      return cloneCells(nextCells);
+      return cloneSelection(nextSelection);
     });
   };
 
@@ -101,26 +125,26 @@ export const App = () => {
 
   const beginStroke = () => {
     setIsDrawing(true);
-    strokeStart.current = cloneCells(filledCells);
+    strokeStart.current = cloneSelection(selection);
   };
 
-  const updateStroke = (nextCells: Set<string>) => {
-    setFilledCells(nextCells);
+  const updateStroke = (nextSelection: FillSelection) => {
+    setSelection(nextSelection);
   };
 
-  const endStroke = (finalCells: Set<string>) => {
+  const endStroke = (finalSelection: FillSelection) => {
     const start = strokeStart.current;
     strokeStart.current = null;
     setIsDrawing(false);
-    if (!start || areCellSetsEqual(start, finalCells)) {
+    if (!start || areSelectionsEqual(start, finalSelection)) {
       return;
     }
     undoStack.current.push(start);
     redoStack.current = [];
-    setFilledCells(cloneCells(finalCells));
+    setSelection(cloneSelection(finalSelection));
     setExportSnapshot({
       settings,
-      filledCells: cloneCells(finalCells),
+      selection: cloneSelection(finalSelection),
       exportMode,
     });
   };
@@ -130,8 +154,8 @@ export const App = () => {
     if (!previous) {
       return;
     }
-    redoStack.current.push(cloneCells(filledCells));
-    setFilledCells(cloneCells(previous));
+    redoStack.current.push(cloneSelection(selection));
+    setSelection(cloneSelection(previous));
   };
 
   const redo = () => {
@@ -139,12 +163,19 @@ export const App = () => {
     if (!next) {
       return;
     }
-    undoStack.current.push(cloneCells(filledCells));
-    setFilledCells(cloneCells(next));
+    undoStack.current.push(cloneSelection(selection));
+    setSelection(cloneSelection(next));
   };
 
   const clearGrid = () => {
-    commitCells(new Set());
+    commitSelection({ cells: new Set(), gaps: new Set() });
+  };
+
+  const togglePaintTarget = (target: keyof PaintTargets) => {
+    setPaintTargets((previousTargets) => ({
+      ...previousTargets,
+      [target]: !previousTargets[target],
+    }));
   };
 
   const resetSettings = () => {
@@ -152,7 +183,7 @@ export const App = () => {
   };
 
   const downloadSvg = async () => {
-    const freshExport = exportGridSvg(settings, filledCells, exportMode);
+    const freshExport = exportGridSvg(settings, selection.cells, exportMode, selection.gaps);
     const svg = await optimizeSvg(freshExport.svg);
     const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -163,7 +194,8 @@ export const App = () => {
     URL.revokeObjectURL(url);
   };
 
-  const selectedCount = visibleFilledCells.size;
+  const selectedCellCount = visibleFilledCells.size;
+  const selectedGapCount = visibleFilledGaps.size;
 
   return (
     <main className="appShell">
@@ -223,6 +255,29 @@ export const App = () => {
           </div>
 
           <div className="toolsCompactGrid">
+            <div className="targetToggleGrid" role="group" aria-label="Paint targets">
+              <button
+                type="button"
+                className={paintTargets.cells ? 'targetToggle active' : 'targetToggle'}
+                aria-pressed={paintTargets.cells}
+                onClick={() => togglePaintTarget('cells')}
+                data-testid="cell-target-toggle"
+              >
+                {paintTargets.cells ? <Check size={15} /> : <Grid2x2 size={15} />}
+                Cells
+              </button>
+              <button
+                type="button"
+                className={paintTargets.gaps ? 'targetToggle active' : 'targetToggle'}
+                aria-pressed={paintTargets.gaps}
+                onClick={() => togglePaintTarget('gaps')}
+                data-testid="gap-target-toggle"
+              >
+                {paintTargets.gaps ? <Check size={15} /> : <BetweenHorizontalStart size={15} />}
+                Gaps
+              </button>
+            </div>
+
             <div className="segmented toolSegmented" role="group" aria-label="Drawing tool">
               <button
                 type="button"
@@ -259,7 +314,7 @@ export const App = () => {
                 className="secondaryButton compactClearButton"
                 type="button"
                 onClick={clearGrid}
-                aria-label="Clear filled cells"
+                aria-label="Clear filled cells and gaps"
               >
                 <Trash2 size={16} />
                 Clear
@@ -272,7 +327,7 @@ export const App = () => {
           <div className="sectionHeading">
             <h2 id="export-heading">Export</h2>
             <span className="statPill" data-testid="selected-count">
-              {selectedCount} filled
+              {selectedCellCount} cells · {selectedGapCount} gaps
             </span>
           </div>
           <div className="segmented" role="group" aria-label="SVG export mode">
@@ -318,8 +373,10 @@ export const App = () => {
         <div className="canvasFrame">
           <EditorCanvas
             settings={settings}
-            filledCells={filledCells}
+            filledCells={selection.cells}
+            filledGaps={selection.gaps}
             toolMode={toolMode}
+            paintTargets={paintTargets}
             onStrokeStart={beginStroke}
             onStrokeChange={updateStroke}
             onStrokeEnd={endStroke}
