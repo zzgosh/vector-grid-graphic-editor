@@ -15,12 +15,14 @@
   - 斜切角度
   - 横向 gap 开关和值
   - 纵向 gap 开关和值
+- 未填充区域采用线框网格表现：白底 + 灰色矢量网格线，避免浅灰色块占据视觉。
 - 支持点击填充、按住鼠标拖拽涂抹、橡皮擦模式。
+- 支持在 `Cells` 和 `Gaps` 之间切换填充目标；当横向和纵向 gap 同时开启时，也支持填充 gap 交叉区域。
 - 支持键盘绘制：聚焦画布后，用方向键移动单元，用 Space 或 Enter 按当前工具填充或擦除。
 - 首版采用单色填充，默认黑色，便于专注 Logo 草图构形。
 - SVG 导出支持两种模式：
-  - `Merged`：对相邻填充单元做 union 合并，导出连续矢量路径。
-  - `Separated`：保留每个填充单元为独立 path。
+  - `Merged`：对相邻填充单元和已填充 gap 做 union 合并，导出连续矢量路径。
+  - `Separated`：保留每个填充单元或 gap 区域为独立 path。
 - Merged SVG union 和 SVG 优化都避开拖拽热路径，避免拖慢编辑器首屏和涂抹反馈。
 
 ## 技术方案
@@ -31,7 +33,7 @@
 - `polygon-clipping` 负责无分割线导出时的 polygon union
 - `svgo/browser` 负责下载 SVG 时的优化
 - Vitest 覆盖几何和导出逻辑
-- Playwright 覆盖点击、拖拽、截图差异、SVG 下载和 SVG 渲染
+- Playwright 覆盖点击、拖拽、线框网格像素检查、截图差异、SVG 下载和 SVG 渲染
 
 ## 本地开发
 

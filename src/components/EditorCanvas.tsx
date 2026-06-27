@@ -1,20 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { cellKey } from '../domain/grid';
-import type { GridSettings, Point, ToolMode } from '../domain/types';
+import { cellKey, gapKey, isGapInGrid, parseCellKey, parseGapKey } from '../domain/grid';
+import type { FillSelection, GapRef, GridSettings, PaintTarget, Point, ToolMode } from '../domain/types';
 import {
   findCellAtPoint,
+  findGapAtPoint,
   getCellPolygon,
   getCellsAlongSegment,
+  getGapPolygon,
+  getGapsAlongSegment,
   getGridBounds,
 } from '../shapes/parallelogram';
 
 type EditorCanvasProps = {
   settings: GridSettings;
   filledCells: Set<string>;
+  filledGaps: Set<string>;
   toolMode: ToolMode;
+  paintTarget: PaintTarget;
   onStrokeStart: () => void;
-  onStrokeChange: (cells: Set<string>) => void;
-  onStrokeEnd: (cells: Set<string>) => void;
+  onStrokeChange: (selection: FillSelection) => void;
+  onStrokeEnd: (selection: FillSelection) => void;
 };
 
 type Viewport = {
@@ -62,10 +67,33 @@ const paintCells = (
   return nextCells;
 };
 
+const paintGaps = (
+  settings: GridSettings,
+  sourceGaps: Set<string>,
+  gaps: GapRef[],
+  toolMode: ToolMode,
+): Set<string> => {
+  const nextGaps = new Set(sourceGaps);
+  gaps.forEach((gap) => {
+    if (!isGapInGrid(gap, settings)) {
+      return;
+    }
+    const key = gapKey(gap);
+    if (toolMode === 'paint') {
+      nextGaps.add(key);
+    } else {
+      nextGaps.delete(key);
+    }
+  });
+  return nextGaps;
+};
+
 export const EditorCanvas = ({
   settings,
   filledCells,
+  filledGaps,
   toolMode,
+  paintTarget,
   onStrokeStart,
   onStrokeChange,
   onStrokeEnd,
@@ -74,7 +102,11 @@ export const EditorCanvas = ({
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<Point | null>(null);
-  const workingCellsRef = useRef<Set<string>>(filledCells);
+  const pointerFocusRef = useRef(false);
+  const workingSelectionRef = useRef<FillSelection>({
+    cells: filledCells,
+    gaps: filledGaps,
+  });
   const [canvasSize, setCanvasSize] = useState({ width: 900, height: 620 });
   const [isKeyboardFocused, setIsKeyboardFocused] = useState(false);
   const [keyboardCell, setKeyboardCell] = useState({ row: 0, column: 0 });
@@ -94,8 +126,11 @@ export const EditorCanvas = ({
   }, [bounds, canvasSize]);
 
   useEffect(() => {
-    workingCellsRef.current = filledCells;
-  }, [filledCells]);
+    workingSelectionRef.current = {
+      cells: filledCells,
+      gaps: filledGaps,
+    };
+  }, [filledCells, filledGaps]);
 
   useEffect(() => {
     setKeyboardCell((cell) => ({
@@ -139,7 +174,7 @@ export const EditorCanvas = ({
 
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
     context.clearRect(0, 0, canvasSize.width, canvasSize.height);
-    context.fillStyle = '#f4f5f6';
+    context.fillStyle = '#ffffff';
     context.fillRect(0, 0, canvasSize.width, canvasSize.height);
 
     context.save();
@@ -149,29 +184,7 @@ export const EditorCanvas = ({
     );
     context.scale(viewport.scale, viewport.scale);
 
-    for (let row = 0; row < settings.rows; row += 1) {
-      for (let column = 0; column < settings.columns; column += 1) {
-        const polygon = getCellPolygon(settings, { row, column });
-        const key = cellKey({ row, column });
-        context.beginPath();
-        polygon.forEach((point, index) => {
-          if (index === 0) {
-            context.moveTo(point.x, point.y);
-          } else {
-            context.lineTo(point.x, point.y);
-          }
-        });
-        context.closePath();
-        context.fillStyle = filledCells.has(key) ? settings.fillColor : '#d9dde2';
-        context.strokeStyle = filledCells.has(key) ? settings.fillColor : '#c5cbd2';
-        context.lineWidth = 1 / viewport.scale;
-        context.fill();
-        context.stroke();
-      }
-    }
-
-    if (isKeyboardFocused) {
-      const polygon = getCellPolygon(settings, keyboardCell);
+    const tracePolygon = (polygon: Point[]) => {
       context.beginPath();
       polygon.forEach((point, index) => {
         if (index === 0) {
@@ -181,25 +194,84 @@ export const EditorCanvas = ({
         }
       });
       context.closePath();
-      context.strokeStyle = '#2f6fed';
-      context.lineWidth = 3 / viewport.scale;
+    };
+
+    const strokePolygon = (polygon: Point[], color: string, lineWidth: number) => {
+      tracePolygon(polygon);
+      context.strokeStyle = color;
+      context.lineWidth = lineWidth;
       context.stroke();
+    };
+
+    const fillPolygon = (polygon: Point[], color: string) => {
+      tracePolygon(polygon);
+      context.fillStyle = color;
+      context.fill();
+    };
+
+    context.lineCap = 'butt';
+    context.lineJoin = 'miter';
+
+    for (let row = 0; row < settings.rows; row += 1) {
+      for (let column = 0; column < settings.columns; column += 1) {
+        const polygon = getCellPolygon(settings, { row, column });
+        strokePolygon(polygon, '#a7adb4', 1.2 / viewport.scale);
+      }
+    }
+
+    filledGaps.forEach((key) => {
+      const polygon = getGapPolygon(settings, parseGapKey(key));
+      if (!polygon) {
+        return;
+      }
+      fillPolygon(polygon, settings.fillColor);
+      strokePolygon(polygon, settings.fillColor, 1.2 / viewport.scale);
+    });
+
+    filledCells.forEach((key) => {
+      const cell = parseCellKey(key);
+      if (cell.row < 0 || cell.row >= settings.rows || cell.column < 0 || cell.column >= settings.columns) {
+        return;
+      }
+      const polygon = getCellPolygon(settings, cell);
+      fillPolygon(polygon, settings.fillColor);
+      strokePolygon(polygon, settings.fillColor, 1.2 / viewport.scale);
+    });
+
+    if (isKeyboardFocused) {
+      const polygon = getCellPolygon(settings, keyboardCell);
+      strokePolygon(polygon, '#2f6fed', 3 / viewport.scale);
     }
     context.restore();
-  }, [bounds, canvasSize, filledCells, isKeyboardFocused, keyboardCell, settings, viewport]);
+  }, [bounds, canvasSize, filledCells, filledGaps, isKeyboardFocused, keyboardCell, settings, viewport]);
 
   const applyPoint = (point: Point, previousPoint?: Point | null) => {
-    const cells = previousPoint
-      ? getCellsAlongSegment(settings, previousPoint, point)
-      : findCellAtPoint(settings, point)
-        ? [findCellAtPoint(settings, point)!]
-        : [];
-    if (cells.length === 0) {
+    if (paintTarget === 'cell') {
+      const hitCell = findCellAtPoint(settings, point);
+      const cells = previousPoint ? getCellsAlongSegment(settings, previousPoint, point) : hitCell ? [hitCell] : [];
+      if (cells.length === 0) {
+        return;
+      }
+      const nextSelection = {
+        cells: paintCells(settings, workingSelectionRef.current.cells, cells, toolMode),
+        gaps: workingSelectionRef.current.gaps,
+      };
+      workingSelectionRef.current = nextSelection;
+      onStrokeChange(nextSelection);
       return;
     }
-    const nextCells = paintCells(settings, workingCellsRef.current, cells, toolMode);
-    workingCellsRef.current = nextCells;
-    onStrokeChange(nextCells);
+
+    const hitGap = findGapAtPoint(settings, point);
+    const gaps = previousPoint ? getGapsAlongSegment(settings, previousPoint, point) : hitGap ? [hitGap] : [];
+    if (gaps.length === 0) {
+      return;
+    }
+    const nextSelection = {
+      cells: workingSelectionRef.current.cells,
+      gaps: paintGaps(settings, workingSelectionRef.current.gaps, gaps, toolMode),
+    };
+    workingSelectionRef.current = nextSelection;
+    onStrokeChange(nextSelection);
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -208,8 +280,13 @@ export const EditorCanvas = ({
       return;
     }
     canvas.setPointerCapture(event.pointerId);
+    pointerFocusRef.current = true;
+    setIsKeyboardFocused(false);
     drawingRef.current = true;
-    workingCellsRef.current = new Set(filledCells);
+    workingSelectionRef.current = {
+      cells: new Set(filledCells),
+      gaps: new Set(filledGaps),
+    };
     onStrokeStart();
     const point = getPointerPoint(canvas, event, viewport);
     lastPointRef.current = point;
@@ -236,22 +313,59 @@ export const EditorCanvas = ({
     if (canvas.hasPointerCapture(event.pointerId)) {
       canvas.releasePointerCapture(event.pointerId);
     }
-    onStrokeEnd(workingCellsRef.current);
+    pointerFocusRef.current = false;
+    onStrokeEnd(workingSelectionRef.current);
   };
 
-  const paintKeyboardCell = () => {
-    workingCellsRef.current = new Set(filledCells);
-    const nextCells = paintCells(settings, workingCellsRef.current, [keyboardCell], toolMode);
-    workingCellsRef.current = nextCells;
+  const getKeyboardGap = (): GapRef | null => {
+    const candidates: GapRef[] = [
+      { part: 'x', row: keyboardCell.row, column: keyboardCell.column },
+      { part: 'x', row: keyboardCell.row, column: keyboardCell.column - 1 },
+      { part: 'y', row: keyboardCell.row, column: keyboardCell.column },
+      { part: 'y', row: keyboardCell.row - 1, column: keyboardCell.column },
+    ];
+    return candidates.find((gap) => isGapInGrid(gap, settings)) ?? null;
+  };
+
+  const paintKeyboardSelection = () => {
+    workingSelectionRef.current = {
+      cells: new Set(filledCells),
+      gaps: new Set(filledGaps),
+    };
+
+    const nextSelection =
+      paintTarget === 'cell'
+        ? {
+            cells: paintCells(settings, workingSelectionRef.current.cells, [keyboardCell], toolMode),
+            gaps: workingSelectionRef.current.gaps,
+          }
+        : (() => {
+            const gap = getKeyboardGap();
+            if (!gap) {
+              return null;
+            }
+            return {
+              cells: workingSelectionRef.current.cells,
+              gaps: paintGaps(settings, workingSelectionRef.current.gaps, [gap], toolMode),
+            };
+          })();
+
+    if (!nextSelection) {
+      return;
+    }
+
+    workingSelectionRef.current = nextSelection;
     onStrokeStart();
-    onStrokeChange(nextCells);
-    onStrokeEnd(nextCells);
+    onStrokeChange(nextSelection);
+    onStrokeEnd(nextSelection);
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLCanvasElement>) => {
+    setIsKeyboardFocused(true);
+
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      paintKeyboardCell();
+      paintKeyboardSelection();
       return;
     }
 
@@ -278,12 +392,19 @@ export const EditorCanvas = ({
       <canvas
         ref={canvasRef}
         data-testid="editor-canvas"
-        aria-label="Parallelogram drawing grid. Use arrow keys to move, then Space or Enter to paint or erase the focused cell."
+        aria-label="Parallelogram drawing grid. Use arrow keys to move, then Space or Enter to paint or erase with the active target."
         aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Space Enter"
         role="application"
         tabIndex={0}
-        onBlur={() => setIsKeyboardFocused(false)}
-        onFocus={() => setIsKeyboardFocused(true)}
+        onBlur={() => {
+          pointerFocusRef.current = false;
+          setIsKeyboardFocused(false);
+        }}
+        onFocus={() => {
+          if (!pointerFocusRef.current) {
+            setIsKeyboardFocused(true);
+          }
+        }}
         onKeyDown={handleKeyDown}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}

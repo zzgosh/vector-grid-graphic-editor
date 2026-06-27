@@ -1,4 +1,5 @@
-import type { Bounds, CellRef, GridSettings, Point, ShapeDefinition } from '../domain/types';
+import { gapKey, isGapInGrid } from '../domain/grid';
+import type { Bounds, CellRef, GapRef, GridSettings, Point, ShapeDefinition } from '../domain/types';
 
 const toRadians = (degrees: number): number => (degrees * Math.PI) / 180;
 
@@ -90,6 +91,30 @@ export const getCellPolygon = (settings: GridSettings, cell: CellRef): Point[] =
     { x: origin.x + width, y: origin.y + height + skew },
     { x: origin.x, y: origin.y + height },
   ];
+};
+
+export const getGapPolygon = (settings: GridSettings, gap: GapRef): Point[] | null => {
+  if (!isGapInGrid(gap, settings)) {
+    return null;
+  }
+
+  if (gap.part === 'x') {
+    const leftCell = getCellPolygon(settings, { row: gap.row, column: gap.column });
+    const rightCell = getCellPolygon(settings, { row: gap.row, column: gap.column + 1 });
+    return [leftCell[1], rightCell[0], rightCell[3], leftCell[2]];
+  }
+
+  if (gap.part === 'y') {
+    const topCell = getCellPolygon(settings, { row: gap.row, column: gap.column });
+    const bottomCell = getCellPolygon(settings, { row: gap.row + 1, column: gap.column });
+    return [topCell[3], topCell[2], bottomCell[1], bottomCell[0]];
+  }
+
+  const topLeftCell = getCellPolygon(settings, { row: gap.row, column: gap.column });
+  const topRightCell = getCellPolygon(settings, { row: gap.row, column: gap.column + 1 });
+  const bottomRightCell = getCellPolygon(settings, { row: gap.row + 1, column: gap.column + 1 });
+  const bottomLeftCell = getCellPolygon(settings, { row: gap.row + 1, column: gap.column });
+  return [topLeftCell[2], topRightCell[3], bottomRightCell[0], bottomLeftCell[1]];
 };
 
 export const getGridBounds = (settings: GridSettings): Bounds => {
@@ -211,10 +236,80 @@ const getCandidateCellsAtPoint = (settings: GridSettings, point: Point): CellRef
   return candidates;
 };
 
+const getCandidateGapsAtPoint = (settings: GridSettings, point: Point): GapRef[] => {
+  const skew = getSignedSlantOffset(settings);
+  const gapX = getActiveGapX(settings);
+  const gapY = getActiveGapY(settings);
+  const strideX = settings.cellWidth + gapX;
+  const strideY = settings.cellHeight + gapY;
+  const candidates: GapRef[] = [];
+  const seen = new Set<string>();
+
+  const pushCandidate = (gap: GapRef) => {
+    if (!isGapInGrid(gap, settings)) {
+      return;
+    }
+    const key = gapKey(gap);
+    if (!seen.has(key)) {
+      seen.add(key);
+      candidates.push(gap);
+    }
+  };
+
+  const pushNeighborhood = (row: number, column: number) => {
+    for (let rowOffset = -1; rowOffset <= 1; rowOffset += 1) {
+      for (let columnOffset = -1; columnOffset <= 1; columnOffset += 1) {
+        const candidateRow = row + rowOffset;
+        const candidateColumn = column + columnOffset;
+        pushCandidate({ part: 'x', row: candidateRow, column: candidateColumn });
+        pushCandidate({ part: 'y', row: candidateRow, column: candidateColumn });
+        pushCandidate({ part: 'xy', row: candidateRow, column: candidateColumn });
+      }
+    }
+  };
+
+  if (settings.slantMode === 'verticalEdges') {
+    const columnRadius = Math.ceil(Math.abs(skew) / strideX) + 1;
+    const estimatedRow = Math.floor(point.y / strideY);
+    for (let row = estimatedRow - 1; row <= estimatedRow + 1; row += 1) {
+      const estimatedColumn = Math.floor((point.x - row * skew) / strideX);
+      for (
+        let column = estimatedColumn - columnRadius;
+        column <= estimatedColumn + columnRadius;
+        column += 1
+      ) {
+        pushNeighborhood(row, column);
+      }
+    }
+  } else {
+    const rowRadius = Math.ceil(Math.abs(skew) / strideY) + 1;
+    const estimatedColumn = Math.floor(point.x / strideX);
+    for (let column = estimatedColumn - 1; column <= estimatedColumn + 1; column += 1) {
+      const estimatedRow = Math.floor((point.y - column * skew) / strideY);
+      for (let row = estimatedRow - rowRadius; row <= estimatedRow + rowRadius; row += 1) {
+        pushNeighborhood(row, column);
+      }
+    }
+  }
+
+  return candidates;
+};
+
 export const findCellAtPoint = (settings: GridSettings, point: Point): CellRef | null => {
   for (const cell of getCandidateCellsAtPoint(settings, point)) {
     if (pointInPolygon(point, getCellPolygon(settings, cell))) {
       return cell;
+    }
+  }
+
+  return null;
+};
+
+export const findGapAtPoint = (settings: GridSettings, point: Point): GapRef | null => {
+  for (const gap of getCandidateGapsAtPoint(settings, point)) {
+    const polygon = getGapPolygon(settings, gap);
+    if (polygon && pointInPolygon(point, polygon)) {
+      return gap;
     }
   }
 
@@ -250,4 +345,35 @@ export const getCellsAlongSegment = (
   }
 
   return cells;
+};
+
+export const getGapsAlongSegment = (
+  settings: GridSettings,
+  start: Point,
+  end: Point,
+): GapRef[] => {
+  const distance = Math.hypot(end.x - start.x, end.y - start.y);
+  const sampleStep = Math.max(4, Math.min(settings.cellWidth, settings.cellHeight) / 4);
+  const steps = Math.max(1, Math.ceil(distance / sampleStep));
+  const seen = new Set<string>();
+  const gaps: GapRef[] = [];
+
+  for (let index = 0; index <= steps; index += 1) {
+    const t = index / steps;
+    const point = {
+      x: start.x + (end.x - start.x) * t,
+      y: start.y + (end.y - start.y) * t,
+    };
+    const gap = findGapAtPoint(settings, point);
+    if (!gap) {
+      continue;
+    }
+    const key = gapKey(gap);
+    if (!seen.has(key)) {
+      seen.add(key);
+      gaps.push(gap);
+    }
+  }
+
+  return gaps;
 };

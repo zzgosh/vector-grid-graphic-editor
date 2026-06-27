@@ -1,7 +1,7 @@
 import * as polygonClippingNamespace from 'polygon-clipping';
-import { isCellInGrid, parseCellKey } from '../domain/grid';
-import type { CellRef, ExportMode, GridSettings, Point } from '../domain/types';
-import { getCellPolygon, getGridBounds } from '../shapes/parallelogram';
+import { isCellInGrid, isGapInGrid, parseCellKey, parseGapKey } from '../domain/grid';
+import type { CellRef, ExportMode, GapRef, GridSettings, Point } from '../domain/types';
+import { getCellPolygon, getGapPolygon, getGridBounds } from '../shapes/parallelogram';
 
 type Pair = [number, number];
 type Ring = Pair[];
@@ -22,6 +22,7 @@ export type SvgExportResult = {
   stats: {
     mode: ExportMode;
     selectedCells: number;
+    selectedGaps: number;
     pathCount: number;
     pointCount: number;
     width: number;
@@ -82,8 +83,28 @@ const getSelectedCells = (settings: GridSettings, filledCells: Set<string>): Cel
     .filter((cell) => isCellInGrid(cell, settings))
     .sort((first, second) => first.row - second.row || first.column - second.column);
 
-const getSelectedPolygons = (settings: GridSettings, filledCells: Set<string>): Point[][] =>
-  getSelectedCells(settings, filledCells).map((cell) => getCellPolygon(settings, cell));
+const getSelectedGaps = (settings: GridSettings, filledGaps: Set<string>): GapRef[] =>
+  Array.from(filledGaps)
+    .map(parseGapKey)
+    .filter((gap) => isGapInGrid(gap, settings))
+    .sort(
+      (first, second) =>
+        first.row - second.row ||
+        first.column - second.column ||
+        first.part.localeCompare(second.part),
+    );
+
+const getSelectedPolygons = (
+  settings: GridSettings,
+  selectedCells: CellRef[],
+  selectedGaps: GapRef[],
+): Point[][] => [
+  ...selectedCells.map((cell) => getCellPolygon(settings, cell)),
+  ...selectedGaps.flatMap((gap) => {
+    const polygon = getGapPolygon(settings, gap);
+    return polygon ? [polygon] : [];
+  }),
+];
 
 const boundsFromPolygons = (polygons: Point[][]): ReturnType<typeof getGridBounds> => {
   const points = polygons.flat();
@@ -144,24 +165,19 @@ const convertUnionOutput = (output: MultiPolygon): Point[][][] =>
   );
 
 const buildSeparatedPaths = (
-  settings: GridSettings,
-  selectedCells: CellRef[],
+  selectedPolygons: Point[][],
   bounds: { minX: number; minY: number },
-): string[] =>
-  selectedCells.map((cell) => ringToPath(getCellPolygon(settings, cell), bounds)).filter(Boolean);
+): string[] => selectedPolygons.map((polygon) => ringToPath(polygon, bounds)).filter(Boolean);
 
 const buildMergedPaths = (
-  settings: GridSettings,
-  selectedCells: CellRef[],
+  selectedPolygons: Point[][],
   bounds: { minX: number; minY: number },
 ): string[] => {
-  if (selectedCells.length === 0) {
+  if (selectedPolygons.length === 0) {
     return [];
   }
 
-  const polygons = selectedCells.map<Polygon>((cell) => [
-    ringToPolygonInput(getCellPolygon(settings, cell)),
-  ]);
+  const polygons = selectedPolygons.map<Polygon>((polygon) => [ringToPolygonInput(polygon)]);
   const unionOutput = polygonClipping.union(polygons[0], ...polygons.slice(1));
   return multipolygonToPaths(convertUnionOutput(unionOutput), bounds);
 };
@@ -192,14 +208,16 @@ export const exportGridSvg = (
   settings: GridSettings,
   filledCells: Set<string>,
   mode: ExportMode,
+  filledGaps = new Set<string>(),
 ): SvgExportResult => {
   const selectedCells = getSelectedCells(settings, filledCells);
-  const selectedPolygons = getSelectedPolygons(settings, filledCells);
+  const selectedGaps = getSelectedGaps(settings, filledGaps);
+  const selectedPolygons = getSelectedPolygons(settings, selectedCells, selectedGaps);
   const bounds = boundsFromPolygons(selectedPolygons);
   const paths =
     mode === 'merged'
-      ? buildMergedPaths(settings, selectedCells, bounds)
-      : buildSeparatedPaths(settings, selectedCells, bounds);
+      ? buildMergedPaths(selectedPolygons, bounds)
+      : buildSeparatedPaths(selectedPolygons, bounds);
   const svg = buildSvgMarkup(paths, settings, bounds);
 
   return {
@@ -207,6 +225,7 @@ export const exportGridSvg = (
     stats: {
       mode,
       selectedCells: selectedCells.length,
+      selectedGaps: selectedGaps.length,
       pathCount: paths.length,
       pointCount: countPointsInPaths(paths),
       width: bounds.width,

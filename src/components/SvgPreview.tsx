@@ -15,6 +15,7 @@ export const SvgPreview = ({ result }: SvgPreviewProps) => (
       </div>
       <div className="exportStats">
         <span>{result.stats.selectedCells} cells</span>
+        <span>{result.stats.selectedGaps} gaps</span>
         <span>{result.stats.pathCount} paths</span>
       </div>
     </div>
