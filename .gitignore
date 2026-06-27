@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.DS_Store
+.env
+.env.*
+!.env.example
+.playwright-cli/
+*.auth-state.json
+test-results/
+playwright-report/
+coverage/
+artifacts/
+*.tsbuildinfo
+*.webm
+*.mp4
+*.log
