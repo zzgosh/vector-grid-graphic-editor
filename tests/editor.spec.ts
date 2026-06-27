@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 import { readFileSync } from 'node:fs';
@@ -52,37 +52,47 @@ const getSignedSlantOffset = (settings: TestSettings): number => {
   return settings.slantDirection === 'forward' ? -offset : offset;
 };
 
+const getSignedStrideSlantOffset = (settings: TestSettings): number => {
+  const adjacent =
+    settings.slantMode === 'verticalEdges'
+      ? settings.cellHeight + (settings.gapYEnabled ? settings.gapY : 0)
+      : settings.cellWidth + (settings.gapXEnabled ? settings.gapX : 0);
+  const offset = Math.tan(toRadians(settings.slantAngle)) * adjacent;
+  return settings.slantDirection === 'forward' ? -offset : offset;
+};
+
 const getCellPolygon = (
   settings: TestSettings,
   { row, column }: { row: number; column: number },
 ): TestPoint[] => {
-  const skew = getSignedSlantOffset(settings);
+  const cellSkew = getSignedSlantOffset(settings);
+  const strideSkew = getSignedStrideSlantOffset(settings);
   const gapX = settings.gapXEnabled ? settings.gapX : 0;
   const gapY = settings.gapYEnabled ? settings.gapY : 0;
   const origin =
     settings.slantMode === 'verticalEdges'
       ? {
-          x: column * (settings.cellWidth + gapX) + row * skew,
+          x: column * (settings.cellWidth + gapX) + row * strideSkew,
           y: row * (settings.cellHeight + gapY),
         }
       : {
           x: column * (settings.cellWidth + gapX),
-          y: column * skew + row * (settings.cellHeight + gapY),
+          y: column * strideSkew + row * (settings.cellHeight + gapY),
         };
 
   if (settings.slantMode === 'verticalEdges') {
     return [
       { x: origin.x, y: origin.y },
       { x: origin.x + settings.cellWidth, y: origin.y },
-      { x: origin.x + settings.cellWidth + skew, y: origin.y + settings.cellHeight },
-      { x: origin.x + skew, y: origin.y + settings.cellHeight },
+      { x: origin.x + settings.cellWidth + cellSkew, y: origin.y + settings.cellHeight },
+      { x: origin.x + cellSkew, y: origin.y + settings.cellHeight },
     ];
   }
 
   return [
     { x: origin.x, y: origin.y },
-    { x: origin.x + settings.cellWidth, y: origin.y + skew },
-    { x: origin.x + settings.cellWidth, y: origin.y + settings.cellHeight + skew },
+    { x: origin.x + settings.cellWidth, y: origin.y + cellSkew },
+    { x: origin.x + settings.cellWidth, y: origin.y + settings.cellHeight + cellSkew },
     { x: origin.x, y: origin.y + settings.cellHeight },
   ];
 };
@@ -214,6 +224,18 @@ const getCanvasPixelAtWorldPoint = async (canvas: Locator, point: TestPoint) => 
   }, localPoint);
 };
 
+const parseSelectedCounts = async (page: Page) => {
+  const selectedText = await page.getByTestId('selected-count').textContent();
+  const match = selectedText?.match(/(\d+) cells · (\d+) gaps/);
+  if (!match) {
+    throw new Error(`Unexpected selected-count text: ${selectedText}`);
+  }
+  return {
+    cells: Number(match[1]),
+    gaps: Number(match[2]),
+  };
+};
+
 test('paints by click and drag, then exports renderable SVG', async ({ page }) => {
   await page.goto('/');
 
@@ -239,9 +261,8 @@ test('paints by click and drag, then exports renderable SVG', async ({ page }) =
   await page.mouse.up();
 
   await expect(page.getByTestId('selected-count')).not.toHaveText('0 cells · 0 gaps');
-  const selectedText = await page.getByTestId('selected-count').textContent();
-  const selectedCount = Number(selectedText?.match(/\d+/)?.[0] ?? '0');
-  expect(selectedCount).toBeGreaterThan(3);
+  const selectedCount = await parseSelectedCounts(page);
+  expect(selectedCount.cells + selectedCount.gaps).toBeGreaterThan(3);
   await expect.poll(() => countDarkCanvasPixels(canvas), { timeout: 5_000 }).toBeGreaterThan(20);
 
   const after = await canvas.screenshot();
@@ -268,21 +289,56 @@ test('paints by click and drag, then exports renderable SVG', async ({ page }) =
   expect(PNG.sync.read(rendered).width).toBeGreaterThan(10);
 });
 
-test('paints gap regions as exportable fill targets', async ({ page }) => {
+test('paints cells and gaps in one continuous stroke by default', async ({ page }) => {
   await page.goto('/');
 
   const canvas = page.getByTestId('editor-canvas');
   await expect(canvas).toBeVisible();
-  await page.getByTestId('gap-target').click();
+  await expect(page.getByTestId('cell-target-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('gap-target-toggle')).toHaveAttribute('aria-pressed', 'true');
 
-  const gapCenter = centerOf(getGapPolygon(DEFAULT_TEST_SETTINGS, { part: 'x', row: 6, column: 6 }));
-  const canvasPoint = await getCanvasPointForWorldPoint(canvas, gapCenter);
-  await page.mouse.click(canvasPoint.x, canvasPoint.y);
+  const startPoint = await getCanvasPointForWorldPoint(
+    canvas,
+    centerOf(getCellPolygon(DEFAULT_TEST_SETTINGS, { row: 6, column: 6 })),
+  );
+  const endPoint = await getCanvasPointForWorldPoint(
+    canvas,
+    centerOf(getCellPolygon(DEFAULT_TEST_SETTINGS, { row: 6, column: 8 })),
+  );
+  await page.mouse.move(startPoint.x, startPoint.y);
+  await page.mouse.down();
+  await page.mouse.move(endPoint.x, endPoint.y, { steps: 12 });
+  await page.mouse.up();
 
+  const selectedCount = await parseSelectedCounts(page);
+  expect(selectedCount.cells).toBeGreaterThan(1);
+  expect(selectedCount.gaps).toBeGreaterThan(0);
+  await expect.poll(() => countDarkCanvasPixels(canvas), { timeout: 5_000 }).toBeGreaterThan(0);
+});
+
+test('disables cell filling only when the cell target is explicitly off', async ({ page }) => {
+  await page.goto('/');
+
+  const canvas = page.getByTestId('editor-canvas');
+  await expect(canvas).toBeVisible();
+  await page.getByTestId('cell-target-toggle').click();
+  await expect(page.getByTestId('cell-target-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('gap-target-toggle')).toHaveAttribute('aria-pressed', 'true');
+
+  const cellCenter = await getCanvasPointForWorldPoint(
+    canvas,
+    centerOf(getCellPolygon(DEFAULT_TEST_SETTINGS, { row: 6, column: 6 })),
+  );
+  await page.mouse.click(cellCenter.x, cellCenter.y);
+  await expect(page.getByTestId('selected-count')).toHaveText('0 cells · 0 gaps');
+
+  const gapCenter = await getCanvasPointForWorldPoint(
+    canvas,
+    centerOf(getGapPolygon(DEFAULT_TEST_SETTINGS, { part: 'x', row: 6, column: 6 })),
+  );
+  await page.mouse.click(gapCenter.x, gapCenter.y);
   await expect(page.getByTestId('selected-count')).toHaveText('0 cells · 1 gaps');
   await expect(page.locator('.previewPanel')).toContainText('1 gaps');
-  await expect(page.getByTestId('export-stats')).toContainText('1 paths');
-  await expect.poll(() => countDarkCanvasPixels(canvas), { timeout: 5_000 }).toBeGreaterThan(0);
 });
 
 test('supports changing grid quantity and slant controls', async ({ page }) => {
@@ -308,7 +364,7 @@ test('supports keyboard painting and preserves hidden cells across grid resizing
     await page.keyboard.press('ArrowDown');
   }
   await page.keyboard.press('Space');
-  await expect(page.getByTestId('selected-count')).toHaveText('1 cells · 0 gaps');
+  await expect(page.getByTestId('selected-count')).toHaveText('1 cells · 1 gaps');
 
   await page.getByTestId('rows-input').fill('4');
   await page.getByTestId('rows-input').press('Enter');
@@ -320,5 +376,5 @@ test('supports keyboard painting and preserves hidden cells across grid resizing
   await page.getByTestId('rows-input').press('Enter');
   await page.getByTestId('columns-input').fill('16');
   await page.getByTestId('columns-input').press('Enter');
-  await expect(page.getByTestId('selected-count')).toHaveText('1 cells · 0 gaps');
+  await expect(page.getByTestId('selected-count')).toHaveText('1 cells · 1 gaps');
 });

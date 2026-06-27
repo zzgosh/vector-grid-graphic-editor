@@ -17,6 +17,15 @@ const centerOf = (polygon: Array<{ x: number; y: number }>) => ({
   y: polygon.reduce((sum, point) => sum + point.y, 0) / polygon.length,
 });
 
+const cross = (
+  firstStart: { x: number; y: number },
+  firstEnd: { x: number; y: number },
+  secondStart: { x: number; y: number },
+  secondEnd: { x: number; y: number },
+) =>
+  (firstEnd.x - firstStart.x) * (secondEnd.y - secondStart.y) -
+  (firstEnd.y - firstStart.y) * (secondEnd.x - secondStart.x);
+
 describe('parallelogram geometry', () => {
   it('builds a default 16 x 16 bounded grid', () => {
     const bounds = getGridBounds(DEFAULT_GRID_SETTINGS);
@@ -146,5 +155,41 @@ describe('parallelogram geometry', () => {
     expect(gaps.map((gap) => gap.column)).toContain(2);
     expect(gaps.map((gap) => gap.column)).toContain(8);
     expect(gaps.length).toBeGreaterThan(4);
+  });
+
+  it('samples narrow slanted gaps and their intersections as a continuous strip', () => {
+    const settings = {
+      ...DEFAULT_GRID_SETTINGS,
+      gapX: 4,
+      gapY: 4,
+    };
+    const startPolygon = getGapPolygon(settings, { part: 'x', row: 2, column: 3 });
+    const endPolygon = getGapPolygon(settings, { part: 'x', row: 6, column: 3 });
+
+    expect(startPolygon).not.toBeNull();
+    expect(endPolygon).not.toBeNull();
+
+    const gaps = getGapsAlongSegment(settings, centerOf(startPolygon!), centerOf(endPolygon!));
+
+    expect(gaps.some((gap) => gap.part === 'x' && gap.row === 2 && gap.column === 3)).toBe(true);
+    expect(gaps.some((gap) => gap.part === 'x' && gap.row === 6 && gap.column === 3)).toBe(true);
+    expect(gaps.some((gap) => gap.part === 'xy' && gap.column === 3)).toBe(true);
+  });
+
+  it('keeps slanted gap edges collinear through row gaps', () => {
+    const settings = {
+      ...DEFAULT_GRID_SETTINGS,
+      gapX: 4,
+      gapY: 4,
+    };
+    const xGap = getGapPolygon(settings, { part: 'x', row: 2, column: 3 });
+    const intersectionGap = getGapPolygon(settings, { part: 'xy', row: 2, column: 3 });
+
+    expect(xGap).not.toBeNull();
+    expect(intersectionGap).not.toBeNull();
+    expect(xGap![3]).toEqual(intersectionGap![0]);
+    expect(Math.abs(cross(xGap![0], xGap![3], intersectionGap![0], intersectionGap![3]))).toBeLessThan(
+      0.001,
+    );
   });
 });

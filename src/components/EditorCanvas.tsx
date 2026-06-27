@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cellKey, gapKey, isGapInGrid, parseCellKey, parseGapKey } from '../domain/grid';
-import type { FillSelection, GapRef, GridSettings, PaintTarget, Point, ToolMode } from '../domain/types';
+import type { FillSelection, GapRef, GridSettings, PaintTargets, Point, ToolMode } from '../domain/types';
 import {
   findCellAtPoint,
   findGapAtPoint,
@@ -16,7 +16,7 @@ type EditorCanvasProps = {
   filledCells: Set<string>;
   filledGaps: Set<string>;
   toolMode: ToolMode;
-  paintTarget: PaintTarget;
+  paintTargets: PaintTargets;
   onStrokeStart: () => void;
   onStrokeChange: (selection: FillSelection) => void;
   onStrokeEnd: (selection: FillSelection) => void;
@@ -93,7 +93,7 @@ export const EditorCanvas = ({
   filledCells,
   filledGaps,
   toolMode,
-  paintTarget,
+  paintTargets,
   onStrokeStart,
   onStrokeChange,
   onStrokeEnd,
@@ -246,30 +246,37 @@ export const EditorCanvas = ({
   }, [bounds, canvasSize, filledCells, filledGaps, isKeyboardFocused, keyboardCell, settings, viewport]);
 
   const applyPoint = (point: Point, previousPoint?: Point | null) => {
-    if (paintTarget === 'cell') {
+    let nextSelection = workingSelectionRef.current;
+    let changed = false;
+
+    if (paintTargets.cells) {
       const hitCell = findCellAtPoint(settings, point);
       const cells = previousPoint ? getCellsAlongSegment(settings, previousPoint, point) : hitCell ? [hitCell] : [];
-      if (cells.length === 0) {
-        return;
+      if (cells.length > 0) {
+        nextSelection = {
+          ...nextSelection,
+          cells: paintCells(settings, nextSelection.cells, cells, toolMode),
+        };
+        changed = true;
       }
-      const nextSelection = {
-        cells: paintCells(settings, workingSelectionRef.current.cells, cells, toolMode),
-        gaps: workingSelectionRef.current.gaps,
-      };
-      workingSelectionRef.current = nextSelection;
-      onStrokeChange(nextSelection);
+    }
+
+    if (paintTargets.gaps) {
+      const hitGap = findGapAtPoint(settings, point);
+      const gaps = previousPoint ? getGapsAlongSegment(settings, previousPoint, point) : hitGap ? [hitGap] : [];
+      if (gaps.length > 0) {
+        nextSelection = {
+          ...nextSelection,
+          gaps: paintGaps(settings, nextSelection.gaps, gaps, toolMode),
+        };
+        changed = true;
+      }
+    }
+
+    if (!changed) {
       return;
     }
 
-    const hitGap = findGapAtPoint(settings, point);
-    const gaps = previousPoint ? getGapsAlongSegment(settings, previousPoint, point) : hitGap ? [hitGap] : [];
-    if (gaps.length === 0) {
-      return;
-    }
-    const nextSelection = {
-      cells: workingSelectionRef.current.cells,
-      gaps: paintGaps(settings, workingSelectionRef.current.gaps, gaps, toolMode),
-    };
     workingSelectionRef.current = nextSelection;
     onStrokeChange(nextSelection);
   };
@@ -333,24 +340,29 @@ export const EditorCanvas = ({
       gaps: new Set(filledGaps),
     };
 
-    const nextSelection =
-      paintTarget === 'cell'
-        ? {
-            cells: paintCells(settings, workingSelectionRef.current.cells, [keyboardCell], toolMode),
-            gaps: workingSelectionRef.current.gaps,
-          }
-        : (() => {
-            const gap = getKeyboardGap();
-            if (!gap) {
-              return null;
-            }
-            return {
-              cells: workingSelectionRef.current.cells,
-              gaps: paintGaps(settings, workingSelectionRef.current.gaps, [gap], toolMode),
-            };
-          })();
+    let nextSelection = workingSelectionRef.current;
+    let changed = false;
 
-    if (!nextSelection) {
+    if (paintTargets.cells) {
+      nextSelection = {
+        ...nextSelection,
+        cells: paintCells(settings, nextSelection.cells, [keyboardCell], toolMode),
+      };
+      changed = true;
+    }
+
+    if (paintTargets.gaps) {
+      const gap = getKeyboardGap();
+      if (gap) {
+        nextSelection = {
+          ...nextSelection,
+          gaps: paintGaps(settings, nextSelection.gaps, [gap], toolMode),
+        };
+        changed = true;
+      }
+    }
+
+    if (!changed) {
       return;
     }
 
@@ -392,7 +404,7 @@ export const EditorCanvas = ({
       <canvas
         ref={canvasRef}
         data-testid="editor-canvas"
-        aria-label="Parallelogram drawing grid. Use arrow keys to move, then Space or Enter to paint or erase with the active target."
+        aria-label="Parallelogram drawing grid. Use arrow keys to move, then Space or Enter to paint or erase with enabled targets."
         aria-keyshortcuts="ArrowUp ArrowDown ArrowLeft ArrowRight Space Enter"
         role="application"
         tabIndex={0}

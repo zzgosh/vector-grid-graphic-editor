@@ -33,7 +33,10 @@ export type FillSelection = {
 export type SlantMode = 'verticalEdges' | 'horizontalEdges';
 export type SlantDirection = 'forward' | 'backward';
 export type ToolMode = 'paint' | 'erase';
-export type PaintTarget = 'cell' | 'gap';
+export type PaintTargets = {
+  cells: boolean;
+  gaps: boolean;
+};
 export type ExportMode = 'separated' | 'merged';
 
 export type GridSettings = {

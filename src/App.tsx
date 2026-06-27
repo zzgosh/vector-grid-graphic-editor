@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BetweenHorizontalStart,
+  Check,
   Download,
   Eraser,
   Grid2x2,
@@ -16,7 +17,7 @@ import { NumericField } from './components/NumericField';
 import { ShapeControls } from './components/ShapeControls';
 import { SvgPreview } from './components/SvgPreview';
 import { DEFAULT_GRID_SETTINGS, areKeySetsEqual, filterCellsForGrid, filterGapsForGrid } from './domain/grid';
-import type { ExportMode, FillSelection, GridSettings, PaintTarget, ToolMode } from './domain/types';
+import type { ExportMode, FillSelection, GridSettings, PaintTargets, ToolMode } from './domain/types';
 import { exportGridSvg, optimizeSvg } from './svg/exportSvg';
 
 const cloneSelection = (selection: FillSelection): FillSelection => ({
@@ -52,7 +53,10 @@ export const App = () => {
     gaps: new Set(),
   }));
   const [toolMode, setToolMode] = useState<ToolMode>('paint');
-  const [paintTarget, setPaintTarget] = useState<PaintTarget>('cell');
+  const [paintTargets, setPaintTargets] = useState<PaintTargets>({
+    cells: true,
+    gaps: true,
+  });
   const [exportMode, setExportMode] = useState<ExportMode>('merged');
   const [isDrawing, setIsDrawing] = useState(false);
   const [exportSnapshot, setExportSnapshot] = useState(() => ({
@@ -167,6 +171,13 @@ export const App = () => {
     commitSelection({ cells: new Set(), gaps: new Set() });
   };
 
+  const togglePaintTarget = (target: keyof PaintTargets) => {
+    setPaintTargets((previousTargets) => ({
+      ...previousTargets,
+      [target]: !previousTargets[target],
+    }));
+  };
+
   const resetSettings = () => {
     setSettings(DEFAULT_GRID_SETTINGS);
   };
@@ -244,24 +255,25 @@ export const App = () => {
           </div>
 
           <div className="toolsCompactGrid">
-            <div className="segmented toolSegmented" role="group" aria-label="Paint target">
+            <div className="targetToggleGrid" role="group" aria-label="Paint targets">
               <button
                 type="button"
-                className={paintTarget === 'cell' ? 'active' : ''}
-                aria-pressed={paintTarget === 'cell'}
-                onClick={() => setPaintTarget('cell')}
+                className={paintTargets.cells ? 'targetToggle active' : 'targetToggle'}
+                aria-pressed={paintTargets.cells}
+                onClick={() => togglePaintTarget('cells')}
+                data-testid="cell-target-toggle"
               >
-                <Grid2x2 size={16} />
+                {paintTargets.cells ? <Check size={15} /> : <Grid2x2 size={15} />}
                 Cells
               </button>
               <button
                 type="button"
-                className={paintTarget === 'gap' ? 'active' : ''}
-                aria-pressed={paintTarget === 'gap'}
-                onClick={() => setPaintTarget('gap')}
-                data-testid="gap-target"
+                className={paintTargets.gaps ? 'targetToggle active' : 'targetToggle'}
+                aria-pressed={paintTargets.gaps}
+                onClick={() => togglePaintTarget('gaps')}
+                data-testid="gap-target-toggle"
               >
-                <BetweenHorizontalStart size={16} />
+                {paintTargets.gaps ? <Check size={15} /> : <BetweenHorizontalStart size={15} />}
                 Gaps
               </button>
             </div>
@@ -364,7 +376,7 @@ export const App = () => {
             filledCells={selection.cells}
             filledGaps={selection.gaps}
             toolMode={toolMode}
-            paintTarget={paintTarget}
+            paintTargets={paintTargets}
             onStrokeStart={beginStroke}
             onStrokeChange={updateStroke}
             onStrokeEnd={endStroke}

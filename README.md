@@ -10,7 +10,8 @@ A frontend-only editor for building logo-like vector graphics from a configurabl
 - Shape-specific controls for parallelogram width, height, slant edge mode, slant direction, slant angle, and horizontal / vertical gaps.
 - Line-only construction grid: unfilled units render as white cells with grey vector grid lines, avoiding filled placeholder blocks.
 - Click-to-paint and drag-to-paint interaction with an erase mode.
-- Paint target switching for cells or gap regions, including gap intersections when both horizontal and vertical gaps are enabled.
+- Cell and gap fill targets are enabled together by default; either target can be explicitly disabled for focused editing.
+- Gap painting includes gap intersections when both horizontal and vertical gaps are enabled, so slanted gap strips can stay continuous across rows.
 - Keyboard painting: focus the canvas, move with arrow keys, and press Space or Enter to paint or erase.
 - Single-color fill workflow for focused logo drafting.
 - SVG export in two modes:

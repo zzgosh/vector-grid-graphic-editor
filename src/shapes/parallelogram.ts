@@ -52,21 +52,30 @@ export const getSignedSlantOffset = (settings: GridSettings): number => {
   return settings.slantDirection === 'forward' ? -offset : offset;
 };
 
+const getSignedStrideSlantOffset = (settings: GridSettings): number => {
+  const adjacent =
+    settings.slantMode === 'verticalEdges'
+      ? settings.cellHeight + getActiveGapY(settings)
+      : settings.cellWidth + getActiveGapX(settings);
+  const offset = Math.tan(toRadians(settings.slantAngle)) * adjacent;
+  return settings.slantDirection === 'forward' ? -offset : offset;
+};
+
 export const getCellOrigin = (settings: GridSettings, { row, column }: CellRef): Point => {
-  const skew = getSignedSlantOffset(settings);
+  const strideSkew = getSignedStrideSlantOffset(settings);
   const gapX = getActiveGapX(settings);
   const gapY = getActiveGapY(settings);
 
   if (settings.slantMode === 'verticalEdges') {
     return {
-      x: column * (settings.cellWidth + gapX) + row * skew,
+      x: column * (settings.cellWidth + gapX) + row * strideSkew,
       y: row * (settings.cellHeight + gapY),
     };
   }
 
   return {
     x: column * (settings.cellWidth + gapX),
-    y: column * skew + row * (settings.cellHeight + gapY),
+    y: column * strideSkew + row * (settings.cellHeight + gapY),
   };
 };
 
@@ -190,7 +199,7 @@ export const pointInPolygon = (point: Point, polygon: Point[]): boolean => {
 };
 
 const getCandidateCellsAtPoint = (settings: GridSettings, point: Point): CellRef[] => {
-  const skew = getSignedSlantOffset(settings);
+  const skew = getSignedStrideSlantOffset(settings);
   const gapX = getActiveGapX(settings);
   const gapY = getActiveGapY(settings);
   const strideX = settings.cellWidth + gapX;
@@ -237,7 +246,7 @@ const getCandidateCellsAtPoint = (settings: GridSettings, point: Point): CellRef
 };
 
 const getCandidateGapsAtPoint = (settings: GridSettings, point: Point): GapRef[] => {
-  const skew = getSignedSlantOffset(settings);
+  const skew = getSignedStrideSlantOffset(settings);
   const gapX = getActiveGapX(settings);
   const gapY = getActiveGapY(settings);
   const strideX = settings.cellWidth + gapX;
@@ -353,7 +362,11 @@ export const getGapsAlongSegment = (
   end: Point,
 ): GapRef[] => {
   const distance = Math.hypot(end.x - start.x, end.y - start.y);
-  const sampleStep = Math.max(4, Math.min(settings.cellWidth, settings.cellHeight) / 4);
+  const activeGaps = [getActiveGapX(settings), getActiveGapY(settings)].filter(
+    (gap) => gap > 0,
+  );
+  const smallestFeature = Math.min(settings.cellWidth, settings.cellHeight, ...activeGaps);
+  const sampleStep = Math.max(1, Math.min(6, smallestFeature / 2));
   const steps = Math.max(1, Math.ceil(distance / sampleStep));
   const seen = new Set<string>();
   const gaps: GapRef[] = [];

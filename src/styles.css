@@ -220,6 +220,32 @@ p {
   min-height: 30px;
 }
 
+.targetToggleGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.targetToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  border: 1px solid #d1d6dc;
+  border-radius: 6px;
+  background: #f8f9fa;
+  color: #4b535d;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.targetToggle.active {
+  border-color: #111318;
+  background: #111318;
+  color: #ffffff;
+}
+
 .toolInlineRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
