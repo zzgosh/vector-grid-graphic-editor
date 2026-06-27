@@ -209,7 +209,7 @@ export const App = () => {
 
         <ShapeControls settings={settings} onChange={updateSettings} />
 
-        <section className="controlSection" aria-labelledby="tools-heading">
+        <section className="controlSection compactTools" aria-labelledby="tools-heading">
           <div className="sectionHeading">
             <h2 id="tools-heading">Tools</h2>
             <div className="toolbarGroup" role="group" aria-label="History controls">
@@ -222,41 +222,50 @@ export const App = () => {
             </div>
           </div>
 
-          <div className="segmented" role="group" aria-label="Drawing tool">
-            <button
-              type="button"
-              className={toolMode === 'paint' ? 'active' : ''}
-              aria-pressed={toolMode === 'paint'}
-              onClick={() => setToolMode('paint')}
-            >
-              <Paintbrush size={16} />
-              Paint
-            </button>
-            <button
-              type="button"
-              className={toolMode === 'erase' ? 'active' : ''}
-              aria-pressed={toolMode === 'erase'}
-              onClick={() => setToolMode('erase')}
-            >
-              <Eraser size={16} />
-              Erase
-            </button>
+          <div className="toolsCompactGrid">
+            <div className="segmented toolSegmented" role="group" aria-label="Drawing tool">
+              <button
+                type="button"
+                className={toolMode === 'paint' ? 'active' : ''}
+                aria-pressed={toolMode === 'paint'}
+                onClick={() => setToolMode('paint')}
+              >
+                <Paintbrush size={16} />
+                Paint
+              </button>
+              <button
+                type="button"
+                className={toolMode === 'erase' ? 'active' : ''}
+                aria-pressed={toolMode === 'erase'}
+                onClick={() => setToolMode('erase')}
+              >
+                <Eraser size={16} />
+                Erase
+              </button>
+            </div>
+
+            <div className="toolInlineRow">
+              <label className="compactColorField">
+                <span>Fill color</span>
+                <input
+                  type="color"
+                  value={settings.fillColor}
+                  onChange={(event) => updateSettings({ fillColor: event.target.value })}
+                  aria-label="Fill color"
+                />
+              </label>
+
+              <button
+                className="secondaryButton compactClearButton"
+                type="button"
+                onClick={clearGrid}
+                aria-label="Clear filled cells"
+              >
+                <Trash2 size={16} />
+                Clear
+              </button>
+            </div>
           </div>
-
-          <label className="field">
-            <span>Fill color</span>
-            <input
-              type="color"
-              value={settings.fillColor}
-              onChange={(event) => updateSettings({ fillColor: event.target.value })}
-              aria-label="Fill color"
-            />
-          </label>
-
-          <button className="secondaryButton" type="button" onClick={clearGrid}>
-            <Trash2 size={16} />
-            Clear filled cells
-          </button>
         </section>
 
         <section className="controlSection" aria-labelledby="export-heading">
